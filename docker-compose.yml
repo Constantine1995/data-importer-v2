@@ -1,0 +1,107 @@
+services:
+  php:
+    build: .
+    container_name: laravel_app
+    environment:
+      - TZ=Europe/Moscow
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo 'Starting php service...' &&
+      echo 'Checking MySQL connection...' &&
+      while ! nc -z mysql 3306; do sleep 1; echo 'Waiting for MySQL...'; done &&
+      echo 'Installing Composer dependencies...' &&
+      composer install --no-interaction &&
+      echo 'Clearing configuration cache...' &&
+      php artisan config:clear &&
+      echo 'Generating application key...' &&
+      php artisan key:generate --force &&
+      echo 'Running migrations...' &&
+      php artisan migrate --force &&
+      echo 'Creating migration complete flag...' &&
+      touch /var/www/html/storage/migration_complete &&
+      echo 'Starting Laravel server...' &&
+      php artisan serve --host=0.0.0.0 --port=8000
+      "
+    networks:
+      - laravel_net
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      - TZ=Europe/Moscow
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=laravel
+    ports:
+      - "3307:3306"
+    env_file: .env
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 20s
+      retries: 20
+      start_period: 30s
+    networks:
+      - laravel_net
+
+  scheduler:
+    build: .
+    container_name: laravel_scheduler
+    environment:
+      - TZ=Europe/Moscow
+    depends_on:
+      - php
+      - mysql
+    volumes:
+      - .:/var/www/html
+    command: >
+      sh -c "
+      while ! nc -z mysql 3306; do sleep 1; done &&
+      while [ ! -f vendor/autoload.php ]; do sleep 1; done &&
+      while [ ! -f /var/www/html/storage/migration_complete ]; do sleep 1; done &&
+      echo 'CACHE_DRIVER is $CACHE_DRIVER' &&
+      php artisan config:clear &&
+      php artisan schedule:work
+      "
+    networks:
+      - laravel_net
+
+  queue:
+    build: .
+    container_name: laravel_queue
+    environment:
+      - TZ=Europe/Moscow
+    depends_on:
+      - php
+      - mysql
+    volumes:
+      - .:/var/www/html
+    env_file: .env
+    command: >
+      sh -c "
+      while ! nc -z mysql 3306; do sleep 1; done &&
+      while [ ! -f vendor/autoload.php ]; do sleep 1; done &&
+      while [ ! -f /var/www/html/storage/migration_complete ]; do sleep 1; done &&
+      echo 'CACHE_DRIVER is $CACHE_DRIVER' &&
+      php artisan config:clear &&
+      php artisan queue:work
+      "
+    networks:
+      - laravel_net
+
+volumes:
+  mysql_data:
+
+networks:
+  laravel_net:
+    driver: bridge

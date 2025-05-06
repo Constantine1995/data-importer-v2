@@ -76,8 +76,14 @@ class SyncApiData extends BaseCommand
         foreach ($syncOperations as $type => $service) {
             try {
                 $this->info("Syncing $type...");
-                $service->sync($dateFrom, $dateTo);
-                $this->info("$type synced successfully.");
+                // For stocks use the current date for fromDate and toDate
+                if ($type === 'stocks') {
+                    $service->sync($today, $today);
+                    $this->info("$type synced for today: " . $today->format('Y-m-d'));
+                } else {
+                    $service->sync($dateFrom, $dateTo);
+                    $this->info("$type synced successfully.");
+                }
             } catch (\Throwable $e) {
                 Log::error("$type sync failed", ['error' => $e->getMessage()]);
                 $this->error("$type sync failed: " . $e->getMessage());
